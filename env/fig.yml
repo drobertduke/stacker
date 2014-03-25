@@ -1,0 +1,11 @@
+redis:
+  build: redis/
+  ports:
+    - "6379"
+
+web:
+  build: web/
+  ports: 
+    - "8080:8080"
+  links:
+    - redis
