@@ -23,7 +23,7 @@ RUN wget -qO- https://go.googlecode.com/files/go1.2.linux-amd64.tar.gz | tar -C 
 # RUN git clone https://github.com/drobertduke/stacker.git
 EXPOSE 8080
 RUN go get github.com/drobertduke/stacker
-RUN go get github.com/codegangster/martini
+RUN go get github.com/codegangsta/martini
 RUN go get github.com/hoisie/redis
 RUN go install github.com/drobertduke/stacker
 # CMD stacker
