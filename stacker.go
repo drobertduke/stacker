@@ -10,7 +10,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hi sthere, I love %s!", r.URL.Path[1:])
 
 	var client redis.Client
-	client.Addr = "localdocker"
+	client.Addr = "localdocker:6379"
 	var key = "hello"
 	client.Set(key, []byte("world"))
 	val, _ := client.Get("hello")
