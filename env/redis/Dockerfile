@@ -10,6 +10,7 @@ RUN apt-get install -y redis-server
 # Expose ports.
 EXPOSE 6379
 
+# RUN echo "daemonize yes" > redis.conf
 # Define an entry point.
-# RUN redis-server
-ENTRYPOINT ["redis-server"]
+CMD redis-server 
+# ENTRYPOINT ["redis-server"]

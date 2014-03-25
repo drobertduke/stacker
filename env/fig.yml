@@ -1,11 +1,12 @@
-redis:
-  build: redis/
-  ports:
-    - "6379"
-
 web:
   build: web/
+  command: stacker
   ports: 
     - "8080:8080"
   links:
     - redis
+
+redis:
+  image: orchardup/redis
+#  build: redis/
+

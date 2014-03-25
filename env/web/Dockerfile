@@ -25,4 +25,4 @@ EXPOSE 8080
 RUN go get github.com/drobertduke/stacker
 RUN go get github.com/hoisie/redis
 RUN go install github.com/drobertduke/stacker
-CMD stacker
+# CMD stacker
