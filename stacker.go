@@ -14,7 +14,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	client.Set(key, []byte("world"))
 	val, _ := client.Get("hello")
 
-	fmt.Fprintf(w, val, r.URL.Path[1:])
+	fmt.Fprintf(w, string(val), r.URL.Path[1:])
 }
 
 func main() {
