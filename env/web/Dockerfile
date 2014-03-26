@@ -24,6 +24,6 @@ RUN wget -qO- https://go.googlecode.com/files/go1.2.linux-amd64.tar.gz | tar -C 
 EXPOSE 8080
 RUN go get github.com/drobertduke/stacker
 RUN go get github.com/codegangsta/martini
-RUN go get github.com/hoisie/redis
+RUN go get github.com/garyburd/redigo/redis
 RUN go install github.com/drobertduke/stacker
 # CMD stacker
