@@ -8,6 +8,7 @@ import (
 	"github.com/albrow/zoom"
 	"github.com/garyburd/redigo/redis"
 	"github.com/martini-contrib/binding"
+	"reflect"
 )
 
 type User struct {
@@ -66,7 +67,17 @@ func main() {
 	// USERS
 
 	m.Get("/users", func() string {
-		return "list of users"
+		results, err := zoom.NewQuery("User").Run()
+		if err != nil {
+			return err.Error()
+		}
+		users := reflect.ValueOf(results)
+		resp := "Users:\n"
+		for i := 0; i < users.Len(); i++ {
+			user := users.Index(i).Interface().(*User)
+			resp = resp + user.FullName + " - " + user.Username + "\n" //  " + user.Username + " : " + user.Id + "\n"
+		}
+		return resp
 	})
 
 	m.Get("/users/:userId", func(params martini.Params) string {
@@ -77,10 +88,10 @@ func main() {
 		return "TASKS FOR USER " + params["userId"]
 	})
 
-	m.Post("/users", binding.Bind(UserPost{}), func(params martini.Params) string {
+	m.Post("/users", binding.Bind(UserPost{}), binding.ErrorHandler, func(userPost UserPost) string {
 		user := &User {
-			FullName: params["fullName"],
-			Username: params["username"],
+			FullName: userPost.FullName,
+			Username: userPost.Username,
 		}
 		if err := zoom.Save(user); err != nil {
 			log.Fatal(err)
