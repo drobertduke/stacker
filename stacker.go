@@ -9,6 +9,8 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/martini-contrib/binding"
 	"reflect"
+	"encoding/json"
+	"errors"
 )
 
 type User struct {
@@ -32,6 +34,23 @@ func (up UserPost) Validate(errors *binding.Errors, req *http.Request) {
 	}
 }
 
+type ErrorResponse struct {
+	Message string
+}
+
+func renderError(code int, err error, res http.ResponseWriter) string {
+	msg := &ErrorResponse{err.Error()}
+	j, err := json.Marshal(msg)
+	if err != nil {
+		res.WriteHeader(500)
+		return "Could not return error"
+	}
+	res.WriteHeader(code)
+	return string(j)
+}
+
+function renderSuccess()
+
 func main() {
 	var redisHost = os.Getenv("REDIS_1_PORT_6379_TCP_ADDR")
 	var redisPort = os.Getenv("REDIS_1_PORT_6379_TCP_PORT")
@@ -53,7 +72,6 @@ func main() {
 	c.Do("SET", "hello", "world")
 
 	m.Get("/", func() string {
-
 		val, _ := c.Do("GET", "hello")
 		bytes, ok := val.([]byte)
 		if !ok {
@@ -66,35 +84,56 @@ func main() {
 
 	// USERS
 
-	m.Get("/users", func() string {
+	m.Get("/users", func(res http.ResponseWriter, req *http.Request) string {
 		results, err := zoom.NewQuery("User").Run()
 		if err != nil {
-			return err.Error()
+			return renderError(400, err, res)
 		}
 		users := reflect.ValueOf(results)
-		resp := "Users:\n"
+		resp := ""
 		for i := 0; i < users.Len(); i++ {
 			user := users.Index(i).Interface().(*User)
-			resp = resp + user.FullName + " - " + user.Username + "\n" //  " + user.Username + " : " + user.Id + "\n"
+			j, err := json.Marshal(user)
+			if err != nil {
+				return renderError(500, err, res)
+			}
+			resp = resp + string(j)
 		}
 		return resp
 	})
 
-	m.Get("/users/:userId", func(params martini.Params) string {
-		return "DETAIL FOR USER " + params["userId"]
+	m.Get("/users/:userId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
+		result, err := zoom.FindById("User", params["userId"])
+		if err != nil {
+			return renderError(400, err, res)
+		}
+		user, ok := result.(*User)
+		if !ok {
+			return renderError(500, errors.New("Could not case to User"), res)
+		}
+		j, err := json.Marshal(user)
+		if err != nil {
+			return renderError(500, err, res)
+		}
+		return string(j)
 	})
 
-	m.Get("/users/:userId/tasks", func(params martini.Params) string {
+	m.Get("/users/:userId/tasks", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
 		return "TASKS FOR USER " + params["userId"]
 	})
 
-	m.Post("/users", binding.Bind(UserPost{}), binding.ErrorHandler, func(userPost UserPost) string {
+	m.Post(
+		"/users",
+		binding.Bind(UserPost{}),
+		binding.ErrorHandler,
+		func(userPost UserPost, res http.ResponseWriter, req *http.Request) string {
+
 		user := &User {
 			FullName: userPost.FullName,
 			Username: userPost.Username,
 		}
 		if err := zoom.Save(user); err != nil {
-			log.Fatal(err)
+			return renderError(400, err, res)
 		}
 		return "POSTED USER"
 	})
