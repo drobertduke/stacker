@@ -1,5 +1,7 @@
 #!/bin/sh
 pkill stacker
 go build
-echo "BUILD SUCCESS"
-./stacker &
+if [ $? -eq 0 ]
+then
+	echo "BUILD SUCCESS"
+fi
