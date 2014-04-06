@@ -1,21 +1,23 @@
 package main
 
 import (
+	"strings"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/albrow/zoom"
 	"github.com/codegangsta/martini"
-	"github.com/garyburd/redigo/redis"
 	"github.com/martini-contrib/binding"
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 )
 
 type User struct {
 	FullName string
 	Username string
-	Tasks    []*Task
+	TaskIds  []string
 	zoom.DefaultData
 }
 
@@ -82,11 +84,54 @@ func renderResponse(obj interface{}, objType string, res http.ResponseWriter) st
 	return string(j)
 }
 
-func getUserById(userId string) (zoom.Model, error) {
-	return zoom.FindById("User", userId)
+func getUserById(userId string) (*User, error) {
+	user := &User{}
+	err := zoom.ScanById(userId, user)
+	return user, err
+}
+
+func getTaskById(taskId string) (*Task, error) {
+	task := &Task{}
+	err := zoom.ScanById(taskId, task)
+	return task, err
+}
+
+func putModel(modelType reflect.Type, id string, res http.ResponseWriter, req *http.Request) string {
+
+	if req.ParseForm() != nil {
+		return renderError(400, errors.New("Could not parse form data"), res)
+	}
+	if len(req.Form) == 0 {
+		return renderError(400, errors.New("Please provide fields to update"), res)
+	}
+	result, err := zoom.FindById(modelType.Name(), id)
+	if err != nil {
+		return renderError(400, err, res)
+	}
+	model := result.(zoom.Model)
+	for key, val := range req.Form {
+		if len(val) > 1 {
+			return renderError(400, errors.New("Cannot set field " + key + " to an array"), res)
+		}
+		singleVal := val[0]
+		if key == "Id" { continue }
+		field := reflect.ValueOf(model).Elem().FieldByName(key)
+		if !field.IsValid() {
+			return renderError(400, errors.New("Field " + key + " is not valid"), res)
+		}
+		if !field.CanSet() {
+			return renderError(400, errors.New("Field " + key + " cannot be set"), res)
+		}
+		field.SetString(singleVal)
+	}
+	if err := zoom.Save(model); err != nil {
+		return renderError(400, err, res)
+	}
+	return renderResponse(model, strings.ToLower(modelType.Name()), res)
 }
 
 func main() {
+	fmt.Println(os.Getenv("REDIS_1_PORT_6379_TCP_ADDR"))
 	var redisHost = os.Getenv("REDIS_1_PORT_6379_TCP_ADDR")
 	var redisPort = os.Getenv("REDIS_1_PORT_6379_TCP_PORT")
 
@@ -97,8 +142,6 @@ func main() {
 
 	zoom.Init(zoomConfig)
 
-	c, _ := redis.Dial("tcp", redisHost+":"+redisPort)
-
 	if err := zoom.Register(&User{}); err != nil {
 		log.Fatal(err)
 	}
@@ -107,17 +150,6 @@ func main() {
 		log.Fatal(err)
 	}
 	m := martini.Classic()
-
-	c.Do("SET", "hello", "world")
-
-	m.Get("/", func() string {
-		val, _ := c.Do("GET", "hello")
-		bytes, ok := val.([]byte)
-		if !ok {
-			log.Fatal("Whoops")
-		}
-		return "martini " + string(bytes)
-	})
 
 	// API
 
@@ -133,19 +165,24 @@ func main() {
 	})
 
 	m.Get("/users/:userId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
-		result, err := getUserById(params["userId"])
+		user, err := getUserById(params["userId"])
 		if err != nil {
 			return renderError(400, err, res)
-		}
-		user, ok := result.(*User)
-		if !ok {
-			return renderError(400, errors.New("No user found"), res)
 		}
 		return renderResponse(user, "user", res)
 	})
 
 	m.Get("/users/:userId/tasks", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
-		return "TASKS FOR USER " + params["userId"]
+		user, err := getUserById(params["userId"])
+		if err != nil {
+			return renderError(400, err, res)
+		}
+		modelNames := make([]string, len(user.TaskIds))
+		for i := range user.TaskIds {
+			modelNames[i] = "Task"
+		}
+		tasks, err := zoom.MFindById(modelNames, user.TaskIds)
+		return renderResponse(tasks, "tasks", res)
 	})
 
 	m.Post(
@@ -161,11 +198,11 @@ func main() {
 			if err := zoom.Save(user); err != nil {
 				return renderError(400, err, res)
 			}
-			return "POSTED USER"
+			return renderResponse(user, "user", res)
 		})
 
-	m.Put("/users/:userId", func(params martini.Params) string {
-		return "PUT USER " + params["userId"]
+	m.Put("/users/:userId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
+		return putModel(reflect.TypeOf(User{}), params["userId"], res, req)
 	})
 
 	// TASKS
@@ -179,33 +216,45 @@ func main() {
 		return renderResponse(results, "tasks", res)
 	})
 
+	m.Get("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
+		task, err := getTaskById(params["taskId"])
+		if err != nil {
+			return renderError(400, err, res)
+		}
+		return renderResponse(task, "task", res)
+	})
+
 	m.Post(
 		"/tasks",
 		binding.Bind(TaskPost{}),
 		binding.ErrorHandler,
 		func(taskPost TaskPost, res http.ResponseWriter, req *http.Request) string {
-			userResult, err := getUserById(taskPost.OwnerId)
+			user, err := getUserById(taskPost.OwnerId)
 			if err != nil {
 				return renderError(400, err, res)
 			}
-			user := userResult.(*User)
 			task := &Task{
 				Title:       taskPost.Title,
 				Description: taskPost.Description,
 				OwnerId:     taskPost.OwnerId,
 			}
-			user.Tasks = append(user.Tasks, task)
 			if err := zoom.Save(task); err != nil {
 				return renderError(400, err, res)
 			}
+			user.TaskIds = append(user.TaskIds, task.Id)
 			if err := zoom.Save(user); err != nil {
 				return renderError(400, err, res)
 			}
-			return "POSTED TASK"
+			return renderResponse(task, "task", res)
 		})
 
-	m.Put("/tasks/:taskId", func(params martini.Params) string {
-		return "PUT TASK" + params["taskId"]
+	m.Put("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
+		return putModel(reflect.TypeOf(Task{}), params["taskId"], res, req)
+	})
+
+	m.Delete("/tasks/:taskId", func(params martini.Params) string {
+		zoom.DeleteById("Task", params["taskId"])
+		return "DELETED"
 	})
 
 	http.ListenAndServe(":8080", m)
