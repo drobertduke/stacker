@@ -29,24 +29,36 @@ type Task struct {
 }
 
 type UserPost struct {
-	FullName string `form:"fullName" json:"fullName" binding:"required"`
-	Username string `form:"username" json:"username" binding:"required"`
+	FullName string `form:"FullName" json:"FullName" binding:"required"`
+	Username string `form:"Username" json:"Username" binding:"required"`
 }
 
 type TaskPost struct {
-	Title       string `form:"title" json:"title" binding:"required"`
-	Description string `form:"description" json:"description:`
-	OwnerId     string `form:"ownerId" json:"ownerId" binding:"required"`
+	Title       string `form:"Title" json:"Title" binding:"required"`
+	Description string `form:"Description" json:"Description:`
+	OwnerId     string `form:"OwnerId" json:"OwnerId" binding:"required"`
 }
 
 func (up UserPost) Validate(errors *binding.Errors, req *http.Request) {
 	lengthMax := 20
 	if len(up.FullName) > lengthMax {
-		errors.Fields["fullName"] = "Too long, should be less than " + string(lengthMax)
+		errors.Fields["FullName"] = "Too long, should be less than " + string(lengthMax)
 	}
 	if len(up.Username) > lengthMax {
-		errors.Fields["username"] = "Too long, should be less than " + string(lengthMax)
+		errors.Fields["Username"] = "Too long, should be less than " + string(lengthMax)
 	}
+}
+
+func (tp TaskPost) Validate(errors *binding.Errors, req *http.Request) {
+	lengthMax := 50
+	if len(tp.Title) > lengthMax {
+		errors.Fields["Title"] = "Too long, should be less than " + string(lengthMax)
+	}
+	lengthMax = 1000
+	if len(tp.Description) > lengthMax {
+		errors.Fields["Description"] = "Too long, should be less than " + string(lengthMax)
+	}
+
 }
 
 type JSendResponse struct {
@@ -77,23 +89,24 @@ func renderError(code int, err error, res http.ResponseWriter) string {
 
 func renderResponse(obj interface{}, objType string, res http.ResponseWriter) string {
 	jSend := &JSendResponse{JSendStatusSuccess, map[string]interface{}{objType: obj}}
-	j, err := json.Marshal(jSend)
+	j, err := json.MarshalIndent(jSend, "", "    ")
 	if err != nil {
 		return renderError(500, err, res)
 	}
 	return string(j)
 }
 
-func getUserById(userId string) (*User, error) {
-	user := &User{}
-	err := zoom.ScanById(userId, user)
-	return user, err
+func getModelById(modelType reflect.Type, modelId string) (zoom.Model, error) {
+	model, err := zoom.FindById(modelType.Name(), modelId)
+	return model, err
 }
 
-func getTaskById(taskId string) (*Task, error) {
-	task := &Task{}
-	err := zoom.ScanById(taskId, task)
-	return task, err
+func getModel(modelType reflect.Type, id string, res http.ResponseWriter) string {
+	model, err := getModelById(modelType, id)
+	if err != nil {
+		return renderError(400, err, res)
+	}
+	return renderResponse(model, strings.ToLower(modelType.Name()), res)
 }
 
 func putModel(modelType reflect.Type, id string, res http.ResponseWriter, req *http.Request) string {
@@ -165,18 +178,15 @@ func main() {
 	})
 
 	m.Get("/users/:userId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
-		user, err := getUserById(params["userId"])
-		if err != nil {
-			return renderError(400, err, res)
-		}
-		return renderResponse(user, "user", res)
+		return getModel(reflect.TypeOf(User{}), params["userId"], res)
 	})
 
 	m.Get("/users/:userId/tasks", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
-		user, err := getUserById(params["userId"])
+		model, err := getModelById(reflect.TypeOf(User{}), params["userId"])
 		if err != nil {
 			return renderError(400, err, res)
 		}
+		user := model.(*User)
 		modelNames := make([]string, len(user.TaskIds))
 		for i := range user.TaskIds {
 			modelNames[i] = "Task"
@@ -198,6 +208,9 @@ func main() {
 			if err := zoom.Save(user); err != nil {
 				return renderError(400, err, res)
 			}
+			uri := req.URL.Scheme + req.URL.Host + req.URL.Path + "/" + user.Id
+			res.Header().Add("Location", uri)
+			res.WriteHeader(201)
 			return renderResponse(user, "user", res)
 		})
 
@@ -217,11 +230,7 @@ func main() {
 	})
 
 	m.Get("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
-		task, err := getTaskById(params["taskId"])
-		if err != nil {
-			return renderError(400, err, res)
-		}
-		return renderResponse(task, "task", res)
+		return getModel(reflect.TypeOf(Task{}), params["taskId"], res)
 	})
 
 	m.Post(
@@ -229,7 +238,7 @@ func main() {
 		binding.Bind(TaskPost{}),
 		binding.ErrorHandler,
 		func(taskPost TaskPost, res http.ResponseWriter, req *http.Request) string {
-			user, err := getUserById(taskPost.OwnerId)
+			model, err := getModelById(reflect.TypeOf(User{}), taskPost.OwnerId)
 			if err != nil {
 				return renderError(400, err, res)
 			}
@@ -241,10 +250,14 @@ func main() {
 			if err := zoom.Save(task); err != nil {
 				return renderError(400, err, res)
 			}
+			user := model.(*User)
 			user.TaskIds = append(user.TaskIds, task.Id)
 			if err := zoom.Save(user); err != nil {
 				return renderError(400, err, res)
 			}
+			uri := req.URL.Scheme + req.URL.Host + req.URL.Path + "/" + task.Id
+			res.WriteHeader(201)
+			res.Header().Add("Location", uri)
 			return renderResponse(task, "task", res)
 		})
 
@@ -252,9 +265,14 @@ func main() {
 		return putModel(reflect.TypeOf(Task{}), params["taskId"], res, req)
 	})
 
-	m.Delete("/tasks/:taskId", func(params martini.Params) string {
+	m.Delete("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter) string {
 		zoom.DeleteById("Task", params["taskId"])
-		return "DELETED"
+		jSend := &JSendResponse{JSendStatusSuccess, Task{}}
+		j, err := json.Marshal(jSend)
+		if err != nil {
+			return renderError(500, err, res)
+		}
+		return string(j)
 	})
 
 	http.ListenAndServe(":8080", m)
