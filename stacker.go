@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"reflect"
-	"strings"
 )
 
 type User struct {
@@ -78,9 +77,8 @@ func renderError(code int, err error, res http.ResponseWriter) string {
 	return string(j)
 }
 
-func renderResponse(obj interface{}, objType string, res http.ResponseWriter) string {
-	jObj := map[string]interface{}{objType: obj}
-	j, err := json.MarshalIndent(jObj, "", "    ")
+func renderResponse(obj interface{}, res http.ResponseWriter) string {
+	j, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
 		return renderError(500, err, res)
 	}
@@ -97,7 +95,7 @@ func getModel(modelType reflect.Type, id string, res http.ResponseWriter) string
 	if err != nil {
 		return renderError(400, err, res)
 	}
-	return renderResponse(model, strings.ToLower(modelType.Name()), res)
+	return renderResponse(model, res)
 }
 
 func putModel(modelType reflect.Type, id string, res http.ResponseWriter, req *http.Request) string {
@@ -134,7 +132,7 @@ func putModel(modelType reflect.Type, id string, res http.ResponseWriter, req *h
 	if err := zoom.Save(model); err != nil {
 		return renderError(400, err, res)
 	}
-	return renderResponse(model, strings.ToLower(modelType.Name()), res)
+	return renderResponse(model, res)
 }
 
 func main() {
@@ -160,6 +158,9 @@ func main() {
 
 	// API
 
+	m.Use(func(res http.ResponseWriter) {
+		res.Header().Set("Access-Control-Allow-Origin", "http://localhost:9000")
+	})
 	// USERS
 
 	m.Get("/users", func(res http.ResponseWriter, req *http.Request) string {
@@ -168,7 +169,7 @@ func main() {
 			return renderError(400, err, res)
 		}
 
-		return renderResponse(results, "users", res)
+		return renderResponse(results, res)
 	})
 
 	m.Get("/users/:userId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
@@ -191,7 +192,7 @@ func main() {
 		if err != nil {
 			return renderError(400, err, res)
 		}
-		return renderResponse(tasks, "tasks", res)
+		return renderResponse(tasks, res)
 	})
 
 	m.Post(
@@ -210,7 +211,7 @@ func main() {
 			uri := req.URL.Scheme + req.URL.Host + req.URL.Path + "/" + user.Id
 			res.Header().Add("Location", uri)
 			res.WriteHeader(201)
-			return renderResponse(user, "user", res)
+			return renderResponse(user, res)
 		})
 
 	m.Put("/users/:userId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
@@ -227,7 +228,7 @@ func main() {
 
 		tasks := results.([]*Task)
 		fmt.Println(tasks[0])
-		return renderResponse(results, "tasks", res)
+		return renderResponse(results, res)
 	})
 
 	m.Get("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
@@ -259,7 +260,7 @@ func main() {
 			uri := req.URL.Scheme + req.URL.Host + req.URL.Path + "/" + task.Id
 			res.WriteHeader(201)
 			res.Header().Add("Location", uri)
-			return renderResponse(task, "task", res)
+			return renderResponse(task, res)
 		})
 
 	m.Put("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter, req *http.Request) string {
