@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strings"
 )
 
 type User struct {
@@ -24,6 +24,8 @@ type User struct {
 type Task struct {
 	Title       string
 	Description string
+	Priority    int
+	Accepted    bool
 	OwnerId     string
 	zoom.DefaultData
 }
@@ -61,23 +63,12 @@ func (tp TaskPost) Validate(errors *binding.Errors, req *http.Request) {
 
 }
 
-type JSendResponse struct {
-	Status string      `json:"status"`
-	Data   interface{} `json:"data"`
-}
-
 type JSendError struct {
-	Status  string `json:"status"`
 	Message string `json:"message"`
 }
 
-const (
-	JSendStatusSuccess = "success"
-	JSendStatusError   = "error"
-)
-
 func renderError(code int, err error, res http.ResponseWriter) string {
-	jSend := &JSendError{JSendStatusError, err.Error()}
+	jSend := &JSendError{err.Error()}
 	j, err := json.Marshal(jSend)
 	if err != nil {
 		res.WriteHeader(500)
@@ -88,8 +79,8 @@ func renderError(code int, err error, res http.ResponseWriter) string {
 }
 
 func renderResponse(obj interface{}, objType string, res http.ResponseWriter) string {
-	jSend := &JSendResponse{JSendStatusSuccess, map[string]interface{}{objType: obj}}
-	j, err := json.MarshalIndent(jSend, "", "    ")
+	jObj := map[string]interface{}{objType: obj}
+	j, err := json.MarshalIndent(jObj, "", "    ")
 	if err != nil {
 		return renderError(500, err, res)
 	}
@@ -123,19 +114,22 @@ func putModel(modelType reflect.Type, id string, res http.ResponseWriter, req *h
 	}
 	model := result.(zoom.Model)
 	for key, val := range req.Form {
-		if len(val) > 1 {
-			return renderError(400, errors.New("Cannot set field " + key + " to an array"), res)
-		}
 		singleVal := val[0]
-		if key == "Id" { continue }
+		if key == "Id" {
+			continue
+		}
 		field := reflect.ValueOf(model).Elem().FieldByName(key)
 		if !field.IsValid() {
-			return renderError(400, errors.New("Field " + key + " is not valid"), res)
+			return renderError(400, errors.New("Field "+key+" is not valid"), res)
 		}
 		if !field.CanSet() {
-			return renderError(400, errors.New("Field " + key + " cannot be set"), res)
+			return renderError(400, errors.New("Field "+key+" cannot be set"), res)
 		}
-		field.SetString(singleVal)
+		if len(val) > 1 {
+			field.Set(reflect.ValueOf(val))
+		} else {
+			field.SetString(singleVal)
+		}
 	}
 	if err := zoom.Save(model); err != nil {
 		return renderError(400, err, res)
@@ -191,7 +185,12 @@ func main() {
 		for i := range user.TaskIds {
 			modelNames[i] = "Task"
 		}
+		fmt.Println(user.TaskIds)
+		fmt.Println(modelNames)
 		tasks, err := zoom.MFindById(modelNames, user.TaskIds)
+		if err != nil {
+			return renderError(400, err, res)
+		}
 		return renderResponse(tasks, "tasks", res)
 	})
 
@@ -226,6 +225,8 @@ func main() {
 			return renderError(400, err, res)
 		}
 
+		tasks := results.([]*Task)
+		fmt.Println(tasks[0])
 		return renderResponse(results, "tasks", res)
 	})
 
@@ -267,13 +268,9 @@ func main() {
 
 	m.Delete("/tasks/:taskId", func(params martini.Params, res http.ResponseWriter) string {
 		zoom.DeleteById("Task", params["taskId"])
-		jSend := &JSendResponse{JSendStatusSuccess, Task{}}
-		j, err := json.Marshal(jSend)
-		if err != nil {
-			return renderError(500, err, res)
-		}
-		return string(j)
+		res.WriteHeader(204)
+		return ""
 	})
 
-	http.ListenAndServe(":8080", m)
+	http.ListenAndServe(":8081", m)
 }
