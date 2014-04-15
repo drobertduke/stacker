@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/albrow/zoom"
 	"github.com/codegangsta/martini"
+	"github.com/martini-contrib/cors"
 	"github.com/martini-contrib/binding"
 	"log"
 	"net/http"
@@ -158,9 +159,17 @@ func main() {
 
 	// API
 
-	m.Use(func(res http.ResponseWriter) {
-		res.Header().Set("Access-Control-Allow-Origin", "http://localhost:9000")
+	m.Use(cors.Allow(&cors.Options{
+		AllowOrigins:     []string{"http://127.0.0.1:9000"},
+		AllowMethods:     []string{"PUT", "PATCH", "POST", "DELETE", "GET"},
+		AllowHeaders:     []string{"Origin", "Content-Type"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
+
+	m.Options("/tasks", func() {
 	})
+
 	// USERS
 
 	m.Get("/users", func(res http.ResponseWriter, req *http.Request) string {
