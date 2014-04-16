@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/albrow/zoom"
-	"github.com/codegangsta/martini"
-	"github.com/martini-contrib/cors"
+	"github.com/go-martini/martini"
 	"github.com/martini-contrib/binding"
+	"github.com/martini-contrib/cors"
+	"github.com/martini-contrib/sessions"
 	"log"
 	"net/http"
 	"os"
@@ -157,7 +158,8 @@ func main() {
 	}
 	m := martini.Classic()
 
-	// API
+	store := sessions.NewCookieStore([]byte("secret123"))
+	m.Use(sessions.Sessions("my_session", store))
 
 	m.Use(cors.Allow(&cors.Options{
 		AllowOrigins:     []string{"http://127.0.0.1:9000"},
@@ -168,6 +170,22 @@ func main() {
 	}))
 
 	m.Options("/tasks", func() {
+	})
+
+	m.Post("/authenticate", func(res http.ResponseWriter, req *http.Request, session sessions.Session) string {
+		userId := session.Get("userId")
+		if userId == nil {
+			user := &User{
+				FullName: "",
+				Username: "",
+			}
+			if err := zoom.Save(user); err != nil {
+				return renderError(400, err, res)
+			}
+			userId = user.Id
+			session.Set("userId", user.Id)
+		}
+		return getModel(reflect.TypeOf(User{}), userId.(string), res)
 	})
 
 	// USERS
