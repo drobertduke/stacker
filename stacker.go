@@ -8,6 +8,7 @@ import (
 	"github.com/go-martini/martini"
 	"github.com/martini-contrib/binding"
 	"github.com/martini-contrib/cors"
+	"github.com/martini-contrib/render"
 	"github.com/martini-contrib/sessions"
 	"log"
 	"net/http"
@@ -32,8 +33,9 @@ type Task struct {
 }
 
 type UserPost struct {
-	FullName string `form:"FullName" json:"FullName" binding:"required"`
-	Username string `form:"Username" json:"Username" binding:"required"`
+	FullName string `form:"FullName" json:"FullName"`
+	Username string `form:"Username" json:"Username"`
+	Id       string `form:"Id" json:"Id"`
 }
 
 type TaskPost struct {
@@ -159,8 +161,9 @@ func main() {
 	m := martini.Classic()
 
 	store := sessions.NewCookieStore([]byte("secret123"))
+	store.Options(sessions.Options{"/", "localhost", 0, false, false})
+	m.Use(render.Renderer())
 	m.Use(sessions.Sessions("my_session", store))
-
 	m.Use(cors.Allow(&cors.Options{
 		AllowOrigins:     []string{"http://127.0.0.1:9000"},
 		AllowMethods:     []string{"PUT", "PATCH", "POST", "DELETE", "GET"},
@@ -169,23 +172,11 @@ func main() {
 		AllowCredentials: true,
 	}))
 
+	m.Options("/tasks/**", func() {
+	})
 	m.Options("/tasks", func() {
 	})
-
-	m.Post("/authenticate", func(res http.ResponseWriter, req *http.Request, session sessions.Session) string {
-		userId := session.Get("userId")
-		if userId == nil {
-			user := &User{
-				FullName: "",
-				Username: "",
-			}
-			if err := zoom.Save(user); err != nil {
-				return renderError(400, err, res)
-			}
-			userId = user.Id
-			session.Set("userId", user.Id)
-		}
-		return getModel(reflect.TypeOf(User{}), userId.(string), res)
+	m.Options("/users", func() {
 	})
 
 	// USERS
@@ -213,8 +204,6 @@ func main() {
 		for i := range user.TaskIds {
 			modelNames[i] = "Task"
 		}
-		fmt.Println(user.TaskIds)
-		fmt.Println(modelNames)
 		tasks, err := zoom.MFindById(modelNames, user.TaskIds)
 		if err != nil {
 			return renderError(400, err, res)
@@ -253,8 +242,6 @@ func main() {
 			return renderError(400, err, res)
 		}
 
-		tasks := results.([]*Task)
-		fmt.Println(tasks[0])
 		return renderResponse(results, res)
 	})
 
