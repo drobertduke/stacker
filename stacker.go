@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,8 +130,16 @@ func putModel(modelType reflect.Type, id string, res http.ResponseWriter, req *h
 		}
 		if len(val) > 1 {
 			field.Set(reflect.ValueOf(val))
-		} else {
+		} else if field.Kind().String() == "string" {
 			field.SetString(singleVal)
+		} else if field.Kind().String() == "int" {
+			intSingleVal, err := strconv.ParseInt(singleVal, 10, 64)
+			if err != nil {
+				return renderError(500, errors.New("Could not parse int"), res)
+			}
+			field.SetInt(intSingleVal)
+		} else {
+			return renderError(500, errors.New("Invalid field type"), res)
 		}
 	}
 	if err := zoom.Save(model); err != nil {
